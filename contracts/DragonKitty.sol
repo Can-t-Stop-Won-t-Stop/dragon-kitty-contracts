@@ -62,8 +62,9 @@ contract DragonKitty is Ownable, ReentrancyGuard {
     }
 
     function releasePrize() private nonReentrant {
-        // Transfer all WCKs to the winner
-        wrappedCK.transferFrom(address(this), msg.sender, wrappedCK.balanceOf(address(this)));
+        // Transfer WCKs to the winner
+        uint256 reward = (wrappedCK.balanceOf(address(this)) * 9) / 10;
+        wrappedCK.transfer(msg.sender, reward);
     }
 
     function evaluate(uint256 _kittyId) private returns(bool) {
