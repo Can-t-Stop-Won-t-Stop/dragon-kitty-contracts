@@ -5,7 +5,7 @@ start();
 
 async function start(){
   console.log("Retrieving . . .")
-  let response = await contract.methods.getOwner().call();
+  let response = await contract.methods.totalSupply().call();
   console.log(response);
   process.exit();
 }

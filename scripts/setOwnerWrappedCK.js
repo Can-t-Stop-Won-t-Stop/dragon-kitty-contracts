@@ -1,5 +1,5 @@
 const setup = require('./setup.js');
-const contract = setup.contract;
+const contract = setup.contractWrappedCK;
 
 start();
 
