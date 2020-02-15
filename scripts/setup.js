@@ -35,9 +35,17 @@ const abiWCK = contractJsonWCK.abi;
 const contract_addressWCK = contractJsonWCK.networks[network_id].address;
 const addressWrappedCK = contract_addressWCK;
 
+const contractJsonDKString = fs.readFileSync("../build/contracts/DragonKitty.json").toString().trim();
+const contractJsonDK = JSON.parse(contractJsonDKString);
+
+const abiDK = contractJsonDK.abi;
+const contract_addressDK = contractJsonDK.networks[network_id].address;
+const addressDragonKitty = contract_addressDK;
+
 const web3 = new Web3(provider);
 const contractKittyCore = new web3.eth.Contract(abiCK, contract_addressCK);
 const contractWrappedCK = new web3.eth.Contract(abiWCK, contract_addressWCK);
+const contractDragonKitty = new web3.eth.Contract(abiDK, contract_addressDK);
 
 async function getOwner() {
 	account = await web3.eth.getAccounts();
@@ -47,6 +55,8 @@ async function getOwner() {
 module.exports = {
 	getOwner,
 	addressWrappedCK,
+	addressDragonKitty,
 	contractWrappedCK,
-	contractKittyCore
+	contractKittyCore,
+	contractDragonKitty
 }
