@@ -1,0 +1,7 @@
+.DS_Store
+build
+.secret*
+.infura
+node_modules
+package-lock.json
+
