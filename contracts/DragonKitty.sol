@@ -6,6 +6,7 @@ import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "openzeppelin-solidity/contracts/utils/ReentrancyGuard.sol";
 import "./KittyCore.sol";
 import "./WrappedCK.sol";
+import "./Dai.sol";
 
 contract DragonKitty is Ownable, ReentrancyGuard {
 
@@ -22,13 +23,21 @@ contract DragonKitty is Ownable, ReentrancyGuard {
     address public wrappedCKAddress = 0x09fE5f0236F0Ea5D930197DCE254d77B04128075;
     WrappedCK wrappedCK;
 
+    address public daiAddress = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+    Dai public dai;
+
     /* ********* */
     /* FUNCTIONS */
     /* ********* */
 
-    constructor(address _kittyCoreAddress, address payable _wrappedCKAddress) public {
+    constructor(
+        address _kittyCoreAddress,
+        address payable _wrappedCKAddress,
+        address _daiAddress
+    ) public {
         setKittyCoreAddress(_kittyCoreAddress);
         setWrappedCKAddress(_wrappedCKAddress);
+        setDaiAddress(_daiAddress);
         createNewBoss();
     }
 
@@ -42,6 +51,11 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         wrappedCK = WrappedCK(_address);
     }
 
+    function setDaiAddress(address _address) public onlyOwner {
+        daiAddress = _address;
+        dai = Dai(_address);
+    }
+
     /* ********** */
     /* GAME LOGIC */
     /* ********** */
@@ -50,9 +64,12 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         uint256 bossId;
         uint256 traits;
         uint256 kittiesSlayed;
+        uint16 originalHealth;
         uint16 health;
         uint16 element;
         uint16 bossType;
+        uint16 originalCritDefense;
+        uint16 critDefense;
     }
 
     struct KittyStats {
@@ -75,7 +92,8 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         uint256 traits,
         uint16 health,
         uint16 element,
-        uint16 bossType
+        uint16 bossType,
+        uint16 critDefense
     );
 
     event BossDefeated(
@@ -92,11 +110,43 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         uint16 healthRemaining
     );
 
-    uint16 MAX_HEALTH = 200;
-    uint16 MIN_HEALTH = 75;
+    uint16 public MAX_HEALTH = 200;
+    uint16 public MIN_HEALTH = 75;
+
+
+    /***********/
+    /* CONFIGS */
+    /***********/
+    function setBossMinHealth(uint16 _minHealth) public onlyOwner {
+        require(_minHealth > 0, "min health must be > 0");
+        MIN_HEALTH = _minHealth;
+    }
+
+    function setBossMaxHealth(uint16 _maxHealth) public onlyOwner {
+        require(_maxHealth > MIN_HEALTH, "max health must be > min");
+        MAX_HEALTH = _maxHealth;
+    }
+
 
     Boss[] public bosses;
     Boss public currentBoss;
+
+    struct HistoryRecord {
+        uint256 bossId;
+        uint256 kittyId;
+        uint16 damage;
+        bool criticalHit;
+        bool winner;
+    }
+
+    struct History {
+        uint256 bossId;
+        uint256 startIndex;
+        uint256 recordLength;
+    }
+
+    History[] public history;
+    HistoryRecord[] public records;
 
     function notrandom(uint256 seed) private view returns (uint256) {
         return uint256(
@@ -111,7 +161,15 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         );
     }
 
-    function computeDamage(uint256 _kittyId) private view returns(uint16) {
+    function computeDamage(
+        uint256 _kittyId,
+        uint16 _chai,
+        uint16 _daiquiri,
+        uint16 _daisake
+    ) private returns(
+        uint16 damage,
+        bool hasCriticalHit
+    ) {
         KittyStats memory stats = decodeKitty(_kittyId);
 
         uint16 elementMultiplier = computeElementMultiplier(
@@ -119,10 +177,32 @@ contract DragonKitty is Ownable, ReentrancyGuard {
             stats.element
         );
 
-        bool hasCriticalHit = uint16(notrandom(currentBoss.kittiesSlayed) * CRITICAL_CAP) < stats.critical;
-
         // Start the calculation with the base attack
         uint256 totalAttackDamage = uint256(stats.attack);
+
+        // Determine if a critical hit occurs
+        hasCriticalHit = uint16(notrandom(currentBoss.kittiesSlayed) * CRITICAL_CAP) <= stats.critical;
+
+        if (stats.critical >= currentBoss.critDefense) {
+            hasCriticalHit = true;
+            currentBoss.critDefense = currentBoss.originalCritDefense;
+        } else {
+            currentBoss.critDefense = uint16(uint256(currentBoss.critDefense).sub(uint256(stats.critical)));
+        }
+
+    // PAY BONUSES
+        // Multiply by the chai bonus
+        totalAttackDamage = totalAttackDamage * (_chai + _daiquiri + _daisake + 1);
+
+        // Daiquiri gives speed boost
+        stats.speed *= (_daiquiri + 1);
+
+        // Instant crit + elemental multiplier for daisake
+        if (_daisake > 0) {
+            hasCriticalHit = true;
+            elementMultiplier *= 2;
+        }
+    // END PAY BONUSES
 
         // If critical, multiply
         if (hasCriticalHit) {
@@ -151,7 +231,7 @@ contract DragonKitty is Ownable, ReentrancyGuard {
             totalAttackDamage = 2**16-1;
         }
 
-        return uint16(totalAttackDamage);
+        damage = uint16(totalAttackDamage);
     }
 
     // Divide by 10 because the elementMultiplier needs to be an integer
@@ -171,6 +251,7 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         // Get the genes
         uint256 genes = getGenes(_kittyId);
 
+        /*
         KittyStats memory stats = KittyStats(
             uint16(uint16(genes & 0xffff) % NUM_ELEMENTS),
             uint16(uint16(genes / 2**16 & 0xffff) % ATTACK_CAP),
@@ -185,6 +266,26 @@ contract DragonKitty is Ownable, ReentrancyGuard {
                 uint16(uint16(_kittyId % 2**16) % SPEED_CAP),
                 uint16(uint16(_kittyId % 2**16) % CRITICAL_CAP)
             );
+        }
+        */
+
+        KittyStats memory stats = KittyStats(
+            uint16(uint16(_kittyId % 2**16) % NUM_ELEMENTS),
+            uint16(uint16(_kittyId % 2**16) % ATTACK_CAP),
+            uint16(uint16(_kittyId % 2**16) % SPEED_CAP),
+            uint16(uint16(_kittyId % 2**16) % CRITICAL_CAP)
+        );
+
+        if (stats.attack == 0) {
+            stats.attack = 1;
+        }
+
+        if (stats.speed == 0) {
+            stats.speed = 1;
+        }
+
+        if (stats.critical == 0) {
+            stats.critical = 1;
         }
 
         return stats;
@@ -217,41 +318,149 @@ contract DragonKitty is Ownable, ReentrancyGuard {
             health = MIN_HEALTH;
         }
 
+        uint16 critDefense = uint16(((traits / 2**46) & 0xffff) % 99 + 12); // 110 max
+
+        uint256 bossId = bosses.length;
+
         // Save the boss
         currentBoss = Boss(
-            bosses.length,
+            bossId,
             traits,
             0,
             health,
+            health,
             uint16((traits / 2**14) & 0xffff % NUM_ELEMENTS),
-            uint16((traits / 2**30) & 0xffff % NUM_BOSS_TYPES)
+            uint16((traits / 2**30) & 0xffff % NUM_BOSS_TYPES),
+            critDefense,
+            critDefense
         );
 
         bosses.push(currentBoss);
+
+        history.push(History(
+            bossId,
+            (bossId == 0) ? 0 : history[bossId-1].startIndex + history[bossId-1].recordLength,
+            0
+        ));
 
         emit BossAppears(
             currentBoss.bossId,
             currentBoss.traits,
             currentBoss.health,
             currentBoss.element,
-            currentBoss.bossType
+            currentBoss.bossType,
+            currentBoss.critDefense
         );
     }
 
-    /***********/
-    /* CONFIGS */
-    /***********/
-    function setBossMinHealth(uint16 _minHealth) public onlyOwner {
-        require(_minHealth > 0, "min health must be > 0");
-        MIN_HEALTH = _minHealth;
+    // 0.005 eth ==  5 finney, approx $1.40 today
+    // 0.020 eth == 20 finney, approx $5.60 today
+    // 0.035 eth == 35 finney, approx $9.80 today
+    uint256 public CHAI_COST_ETH     =  5 finney;
+    uint256 public DAIQUIRI_COST_ETH = 20 finney;
+    uint256 public DAISAKE_COST_ETH  = 35 finney;
+
+    function setBonusCostsEth(
+        uint256 _chai,
+        uint256 _daiquiri,
+        uint256 _daisake
+    ) public onlyOwner {
+        require(_chai > 100000000000000 && _daiquiri > _chai && _daisake > _daiquiri, "max health must be > min");
+        CHAI_COST_ETH     = _chai;
+        DAIQUIRI_COST_ETH = _daiquiri;
+        DAISAKE_COST_ETH  = _daisake;
     }
 
+    function getBonusCostsEth() public returns (uint256 chai, uint256 daiquiri, uint256 daisake) {
+        chai = CHAI_COST_ETH;
+        daiquiri = DAIQUIRI_COST_ETH;
+        daisake = DAISAKE_COST_ETH;
+    }
 
-    function sacrifice(uint256 _kittyId) public nonReentrant {
+    // "ether" is just used to make the numbers look cleaner. It's in dollars.
+    uint256 public CHAI_COST_DAI     =  1 ether;
+    uint256 public DAIQUIRI_COST_DAI =  5 ether;
+    uint256 public DAISAKE_COST_DAI  = 10 ether;
+
+    function setBonusCostsDai(
+        uint256 _chai,
+        uint256 _daiquiri,
+        uint256 _daisake
+    ) public onlyOwner {
+        require(_chai > 100000000000000 && _daiquiri > _chai && _daisake > _daiquiri, "max health must be > min");
+        CHAI_COST_DAI     = _chai;
+        DAIQUIRI_COST_DAI = _daiquiri;
+        DAISAKE_COST_DAI  = _daisake;
+    }
+
+    function getBonusCostsDai() public returns (uint256 chai, uint256 daiquiri, uint256 daisake) {
+        chai = CHAI_COST_DAI;
+        daiquiri = DAIQUIRI_COST_DAI;
+        daisake = DAISAKE_COST_DAI;
+    }
+
+    uint256 wrappedCKPot;
+    uint256 daiPot;
+    uint256 ethPot;
+
+    function sacrifice(
+            uint256 _kittyId,
+            uint16 _chai,
+            uint16 _daiquiri,
+            uint16 _daisake,
+            uint256 _daiAmount
+    ) public payable nonReentrant {
         require(msg.sender == kittyCore.ownerOf(_kittyId), 'you do not own this cat');
         require(kittyCore.kittyIndexToApproved(_kittyId) == address(this), 'you must approve() this contract');
 
-        if (evaluateDamage(_kittyId)) {
+        uint256 expectedValueEth = 0;
+        uint256 expectedValueDai = 0;
+
+        if (_chai > 0) {
+            if (_chai > 5) {
+                _chai = 5;
+            }
+            expectedValueEth += _chai * CHAI_COST_ETH;
+            expectedValueDai += _chai * CHAI_COST_DAI;
+        }
+
+        if (_daiquiri > 0) {
+            if (_daiquiri > 5) {
+                _daiquiri = 5;
+            }
+            expectedValueEth += _daiquiri * DAIQUIRI_COST_ETH;
+            expectedValueDai += _daiquiri * DAIQUIRI_COST_DAI;
+        }
+
+        if (_daisake > 0) {
+            if (_daisake > 5) {
+                _daisake = 5;
+            }
+            expectedValueEth += _daisake * DAISAKE_COST_ETH;
+            expectedValueDai += _daisake * DAISAKE_COST_DAI;
+        }
+
+        if (_daiAmount > 0) {
+            // check the correct amount of dai
+            require(_daiAmount == expectedValueDai, "did not pay correct dai for items");
+
+            // approve the transaction
+            //(bool success, bytes memory result) = daiAddress.delegatecall(abi.encodeWithSignature("approve(address,uint256)", address(this), _daiAmount));
+            //require(success, "could not approve dai tx");
+
+            // transfer the dai
+            bool daiTransferSuccess = dai.transferFrom(msg.sender, address(this), _daiAmount);
+
+            // make sure it worked
+            require(daiTransferSuccess, "could not transfer dai");
+
+            daiPot += _daiAmount * 9 / 10;
+        } else {
+            require(msg.value == expectedValueEth, "did not pay correct eth for items");
+            ethPot += msg.value * 9 / 10;
+        }
+
+        if (evaluateDamage(_kittyId, _chai, _daiquiri, _daisake)) {
             emit BossDefeated(
                 block.number,
                 _kittyId,
@@ -260,6 +469,7 @@ contract DragonKitty is Ownable, ReentrancyGuard {
             releasePrize();
             createNewBoss();
         } else {
+            wrappedCKPot += 10**18 * 9 / 10;
             currentBoss.kittiesSlayed += 1;
             wrap(_kittyId);
         }
@@ -267,12 +477,32 @@ contract DragonKitty is Ownable, ReentrancyGuard {
 
     function releasePrize() private {
         // Transfer WCKs to the winner
-        uint256 reward = wrappedCK.balanceOf(address(this));
-        wrappedCK.transfer(msg.sender, reward);
+        uint256 reward = wrappedCK.balanceOf(address(this)) * 9 / 10;
+        reward = (wrappedCKPot <= reward) ? wrappedCKPot : reward;
+        wrappedCK.transfer(msg.sender, wrappedCKPot);
+        wrappedCKPot = 0;
+
+        // Transfer DAI to the winner
+        uint256 rewardDai = dai.balanceOf(address(this)) * 9 / 10;
+        rewardDai = (daiPot <= rewardDai) ? daiPot : rewardDai;
+        dai.approve(msg.sender, rewardDai);
+        dai.transfer(msg.sender, rewardDai);
+        daiPot = 0;
+
+        // Transfer ETH to the winner
+        uint256 amount = address(this).balance * 9 / 10;
+        amount = (ethPot <= amount) ? ethPot : amount;
+        msg.sender.transfer(amount);
+        ethPot = 0;
     }
 
-    function evaluateDamage(uint256 _kittyId) private returns(bool) {
-        uint16 damage = computeDamage(_kittyId);
+    function evaluateDamage(
+        uint256 _kittyId,
+        uint16 _chai,
+        uint16 _daiquiri,
+        uint16 _daisake
+    ) private returns(bool) {
+        (uint16 damage, bool hasCriticalHit) = computeDamage(_kittyId, _chai, _daiquiri, _daisake);
 
         if (damage >= currentBoss.health) {
             currentBoss.health = 0;
@@ -288,7 +518,14 @@ contract DragonKitty is Ownable, ReentrancyGuard {
             currentBoss.health
         );
 
-        return currentBoss.health == 0;
+        bool defeated = currentBoss.health == 0;
+
+        records.push(HistoryRecord(
+            currentBoss.bossId, _kittyId, damage, hasCriticalHit, defeated
+        ));
+        history[currentBoss.bossId].recordLength += 1;
+
+        return defeated;
     }
 
     function wrap(uint256 _kittyId) private {
@@ -302,5 +539,23 @@ contract DragonKitty is Ownable, ReentrancyGuard {
         uint256[] memory kittyIds = new uint[](1);
         kittyIds[0] = _kittyId;
         wrappedCK.depositKittiesAndMintTokens(kittyIds);
+    }
+
+    /**
+     * Allow the owner to withdraw some or all of the contract balance.
+     * Pass zero to withdraw all.
+     */
+    function withdraw (uint256 _amountRequested) external onlyOwner {
+        uint256 amount = address(this).balance;
+
+        // If the caller has asked for too much, or has asked for zero,
+        // send the entire balance.
+        if ((_amountRequested > 0) && (_amountRequested < amount)) {
+            amount = _amountRequested;
+        }
+
+        // owner() is not address payable, but msg.sender is and is *guaranteed*
+        // to be owner(). So use msg.sender here.
+        msg.sender.transfer(amount);
     }
 }
