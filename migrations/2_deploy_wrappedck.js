@@ -3,10 +3,16 @@
 const WrappedCK = artifacts.require('WrappedCK');
 
 // This is the cheshire network address only
-const kittyCoreAddress = "0xa751b62893867d0608a2ada5d17d0c43e3433040";
+var kittyCoreAddress = "0xa751b62893867d0608a2ada5d17d0c43e3433040";
 
 module.exports = async (deployer, network, accounts) => {
-	if (network !== 'mainnet' && network !== 'rinkeby') {
+	if (network !== 'mainnet') {
+		if (network === 'rinkeby') {
+			kittyCoreAddress = "0x16baf0de678e52367adc69fd067e5edd1d33e3bf";
+		} else {
+			kittyCoreAddress = "0xa751b62893867d0608a2ada5d17d0c43e3433040";
+		}
+
 		await deployer.deploy(
 			WrappedCK,
 			kittyCoreAddress

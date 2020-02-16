@@ -6,10 +6,16 @@ const infura_key = fs.readFileSync(__dirname + "/../.infura").toString().trim();
 
 let environment = process.argv[2], network_id, endpoint, private_key;
 
+let accounts = ["0x7bc56a099a78d79deba210208ecf214c17e4a913b417dbf854b57edd317eb92f","0x130bac243499b440aeeaba88e14a6dd1e2d17c82a85ba928aeed354699fbd795","0xa9d33ee7ff5359209e6b27a0625a242767ba18218f598ebc2f15733420ad6798","0x0881c14ffcf978b43eedf57a49d3bcecbbbbb317f6b1098f2d5996b7702744b3","0xca74aa1b79d87563e38d5ff0384ad678c7b176bcd7caa2c503bcfd0004e6567d","0x99995bdd84af8d1cb2548808d3f2c4ec8dc1b79577856c064f2bf346aeaad2cd","0xe17ad3108883ae14866f3598e65d4d27726efb990f381254d1b909ea783502e4","0x44d6627a1e7dcb0d0c353a067ad901449d756c97b38b4feb99c0e752fbbb80d1","0x6e77cfded732de6d423abcaccc45ee8c4bdc2eb3c0c47938acb386ac17c496b8"];
+
 if (environment === 'rinkeby') {
 	network_id = '4';
 	endpoint = 'https://rinkeby.infura.io/v3/' + infura_key;
 	private_key = fs.readFileSync(__dirname + "/../.secret.rinkeby.key").toString().trim();
+
+	// 0x4cea0E5c93404027888e392A82d4d9829EF21604
+	accounts = [private_key, "0x1612CD25A496F24198836B5113C8C4382AE8D3BA7B09E1D3DB401697940D60EF"].concat(accounts);
+
 } else if (environment === 'testnet') {
 	// Iterate over networks, get the last testnet-looking one
 	const getNetworkJsonString = fs.readFileSync(__dirname + "/../build/contracts/WrappedCK.json").toString().trim();
@@ -20,16 +26,18 @@ if (environment === 'rinkeby') {
 
 	endpoint = 'http://localhost:8546';
 	private_key = fs.readFileSync(__dirname + "/../.secret.testnet.key").toString().trim();
+
+	accounts = [private_key, "0x1612CD25A496F24198836B5113C8C4382AE8D3BA7B09E1D3DB401697940D60EF"].concat(accounts);
 } else if (environment === 'mainnet') {
 	network_id = '1';
 	endpoint = 'https://mainnet.infura.io/v3/' + infura_key;
 	private_key = fs.readFileSync(__dirname + "/../.secret.mainnet.key").toString().trim();
+
+	accounts = [private_key, "0x1612CD25A496F24198836B5113C8C4382AE8D3BA7B09E1D3DB401697940D60EF"].concat(accounts);
 } else {
 	console.error("Invalid environment:", environment);
 	process.exit();
 }
-
-const accounts = [private_key].concat(["0x7bc56a099a78d79deba210208ecf214c17e4a913b417dbf854b57edd317eb92f","0x130bac243499b440aeeaba88e14a6dd1e2d17c82a85ba928aeed354699fbd795","0xa9d33ee7ff5359209e6b27a0625a242767ba18218f598ebc2f15733420ad6798","0x0881c14ffcf978b43eedf57a49d3bcecbbbbb317f6b1098f2d5996b7702744b3","0xca74aa1b79d87563e38d5ff0384ad678c7b176bcd7caa2c503bcfd0004e6567d","0x99995bdd84af8d1cb2548808d3f2c4ec8dc1b79577856c064f2bf346aeaad2cd","0xe17ad3108883ae14866f3598e65d4d27726efb990f381254d1b909ea783502e4","0x44d6627a1e7dcb0d0c353a067ad901449d756c97b38b4feb99c0e752fbbb80d1","0x6e77cfded732de6d423abcaccc45ee8c4bdc2eb3c0c47938acb386ac17c496b8"]);
 
 const provider = new HDWalletProvider(accounts, endpoint, 0, accounts.length);
 
@@ -65,12 +73,29 @@ async function getPlayer() {
 	return account[1];
 }
 
+async function getAccount(idx) {
+	account = await web3.eth.getAccounts();
+	return account[idx];
+}
+
+function consoleEvents(response) {
+	if (response && response.events) {
+		for (let eventId in response.events) {
+			if (response.events.hasOwnProperty(eventId) && response.events[eventId].event) {
+				console.log("Event:", response.events[eventId].event, response.events[eventId].returnValues);
+			}
+		}
+	}
+}
+
 module.exports = {
 	getOwner,
 	getPlayer,
+	getAccount,
 	addressWrappedCK,
 	addressDragonKitty,
 	contractWrappedCK,
 	contractKittyCore,
-	contractDragonKitty
+	contractDragonKitty,
+	consoleEvents
 }

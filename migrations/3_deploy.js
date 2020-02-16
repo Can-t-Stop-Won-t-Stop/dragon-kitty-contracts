@@ -9,10 +9,10 @@ var wrappedCKAddress = "0x5867c89b5923662012b33E500c3aB9E09de3e272";
 
 module.exports = async (deployer, network, accounts) => {
 	if (network === 'rinkeby') {
-		// Do nothing
 		kittyCoreAddress = "0x16baf0de678e52367adc69fd067e5edd1d33e3bf";
-		//wrappedCKAddress = "";
-	} else if (network !== 'mainnet') {
+	}
+
+	if (network !== 'mainnet') {
 		const wrappedCKContract = await WrappedCK.deployed();
 		wrappedCKAddress = wrappedCKContract.address;
 	}
